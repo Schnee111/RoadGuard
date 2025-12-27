@@ -1,0 +1,27 @@
+# --- Virtual Environment ---
+venv/
+env/
+.env
+.streamlit/secrets.toml
+
+# --- Python Cache & Compiled Files ---
+# File sampah hasil compile Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Database Lokal ---
+*.db
+
+# --- Streamlit Secrets ---
+# Jika nanti pakai API Key Roboflow di secrets.toml, ini jangan di-upload
+.streamlit/secrets.toml
+
+# --- IDE Settings (VS Code/PyCharm) ---
+.vscode/
+.idea/
+
+# --- OS System Files ---
+.DS_Store
+Thumbs.db

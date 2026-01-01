@@ -31,7 +31,7 @@ def render_sidebar():
         
         source_type = st.radio(
             "Input Source", 
-            ["Demo Video", "Upload File", "📷 Webcam", "📡 IP Camera/RTSP"],
+            ["Demo Video", "Upload File", "� Browser Camera (HP/Laptop)", "�📷 Webcam", "📡 IP Camera/RTSP"],
             label_visibility="collapsed",
             help="Pilih sumber video untuk inspeksi"
         )
@@ -72,6 +72,22 @@ def render_sidebar():
                 video_path = tfile.name
             else:
                 video_path = None
+        
+        elif source_type == "📱 Browser Camera (HP/Laptop)":
+            st.success("✅ **Tanpa Install App!**")
+            st.markdown("""
+            Kamera HP/Laptop langsung via browser:
+            
+            1. **Di HP:** Buka URL aplikasi ini di Chrome/Safari
+            2. **Izinkan** akses kamera saat diminta
+            3. Tekan **START** untuk mulai inspeksi
+            
+            💡 *HP dan server harus di WiFi yang sama*
+            """)
+            
+            # Set flag untuk browser camera mode
+            video_path = "BROWSER_CAMERA"
+            st.session_state['use_browser_camera'] = True
                 
         elif source_type == "📷 Webcam":
             # Pilihan kamera
@@ -363,12 +379,12 @@ http://192.168.1.100:4747/video
         # 4. ACTION BUTTONS
         # ==========================================
         col1, col2 = st.columns(2)
-        start_btn = col1.button("▶️ START", type="primary", use_container_width=True)
-        stop_btn = col2.button("⏹️ STOP", type="secondary", use_container_width=True)
+        start_btn = col1.button("▶️ START", type="primary", width='stretch')
+        stop_btn = col2.button("⏹️ STOP", type="secondary", width='stretch')
         
         col3, col4 = st.columns(2)
-        reset_btn = col3.button("🔄 RESET", use_container_width=True)
-        view_history_btn = col4.button("📊 HISTORY", use_container_width=True)
+        reset_btn = col3.button("🔄 RESET", width='stretch')
+        view_history_btn = col4.button("📊 HISTORY", width='stretch')
         
         # ==========================================
         # 5. SESSION INFO

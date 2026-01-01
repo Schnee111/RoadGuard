@@ -7,7 +7,15 @@ import pandas as pd
 import numpy as np
 import xml.etree.ElementTree as ET
 from math import radians, cos, sin, asin, sqrt
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Callable
+
+# Import realtime GPS
+try:
+    from modules.realtime_gps import get_realtime_gps, RealtimeGPS
+    HAS_REALTIME_GPS = True
+except ImportError:
+    HAS_REALTIME_GPS = False
+
 from dataclasses import dataclass
 from datetime import datetime
 import os
@@ -22,21 +30,17 @@ class GPSPoint:
     timestamp: float = 0.0  # dalam detik
     elevation: float = 0.0
     speed: float = 0.0  # m/s
-    accuracy: float = 0.0  # dalam meter
+    accuracy: float = 0.0  # meter
 
 
 class GPSManager:
     """
     Manager untuk data GPS yang mendukung berbagai sumber input:
+    - Realtime (dari browser via streamlit-js-eval) ← NEW
     - Simulasi (default)
-    - CSV file dengan kolom timestamp, latitude, longitude
-    - GPX file (format standar GPS)
-    - Manual input (start/end point dengan interpolasi)
-    - REALTIME dari browser (HP/Laptop)
-    
-    Attributes:
-        mode: 'simulation', 'csv', 'gpx', 'manual', atau 'realtime'
-        data: List of GPSPoint untuk mode file-based
+    - CSV file
+    - GPX file
+    - Manual input
     """
     
     def __init__(self, mode: str = 'simulation', 
@@ -56,60 +60,64 @@ class GPSManager:
         self.end_lon = start_lon
         self.total_frames = 0
         
-        # Untuk realtime
-        self.realtime_lat = None
-        self.realtime_lon = None
-        self.realtime_accuracy = None
-        
         # Track total jarak
         self.total_distance_meters = 0.0
         self._prev_lat = start_lat
         self._prev_lon = start_lon
         
-    def set_realtime_mode(self):
-        """Set GPS manager ke mode realtime dari browser"""
+        # Untuk realtime GPS
+        self._realtime_gps: Optional[RealtimeGPS] = None
+        if HAS_REALTIME_GPS:
+            self._realtime_gps = get_realtime_gps()
+            self._realtime_gps.set_fallback(start_lat, start_lon)
+        
+    def set_realtime_mode(self, session_key: str = 'realtime_gps_main'):
+        """Set GPS manager ke mode realtime."""
         self.mode = 'realtime'
         
-    def update_realtime_position(self, lat: float, lon: float, accuracy: float = 0.0):
-        """
-        Update posisi GPS realtime dari browser.
-        Dipanggil dari komponen JavaScript.
-        
-        Args:
-            lat: Latitude dari browser
-            lon: Longitude dari browser
-            accuracy: Akurasi dalam meter
-        """
-        self.realtime_lat = lat
-        self.realtime_lon = lon
-        self.realtime_accuracy = accuracy
-        
-        # Update tracking distance
-        if self._prev_lat is not None and self._prev_lon is not None:
-            self.total_distance_meters += self.haversine_distance(
-                self._prev_lat, self._prev_lon, lat, lon
-            )
-        
-        self._prev_lat = lat
-        self._prev_lon = lon
-        self.last_lat = lat
-        self.last_lon = lon
+        if HAS_REALTIME_GPS and self._realtime_gps:
+            self._realtime_gps.set_fallback(self.start_lat, self.start_lon)
+        else:
+            import streamlit as st
+            st.warning("⚠️ Realtime GPS tidak tersedia. Install: `pip install streamlit-js-eval`")
     
-    def get_realtime_position(self) -> Tuple[Optional[float], Optional[float]]:
+    def get_realtime_location(self) -> Tuple[float, float]:
         """
-        Dapatkan posisi GPS realtime terkini.
+        Ambil lokasi GPS realtime dari browser.
         
         Returns:
-            (latitude, longitude) atau (None, None) jika belum ada data
+            Tuple (latitude, longitude)
         """
-        # Cek session state dulu (dari JavaScript)
-        if 'realtime_gps' in st.session_state and st.session_state['realtime_gps']:
-            data = st.session_state['realtime_gps']
-            self.realtime_lat = data.get('lat')
-            self.realtime_lon = data.get('lon')
-            self.realtime_accuracy = data.get('accuracy', 0)
+        if HAS_REALTIME_GPS and self._realtime_gps:
+            lat, lon = self._realtime_gps.get_location_simple()
             
-        return self.realtime_lat, self.realtime_lon
+            # Update last known location
+            if lat != self.start_lat or lon != self.start_lon:  # Bukan fallback
+                self.last_lat = lat
+                self.last_lon = lon
+            
+            return lat, lon
+        
+        # Fallback ke simulasi jika realtime tidak tersedia
+        return self.last_lat, self.last_lon
+    
+    def update_realtime_gps(self, lat: float, lon: float, accuracy: float = 0) -> None:
+        """
+        Update lokasi GPS secara manual (dipanggil dari luar).
+        
+        Args:
+            lat: Latitude
+            lon: Longitude
+            accuracy: Akurasi dalam meter
+        """
+        st.session_state[self._realtime_session_key] = {
+            'lat': lat,
+            'lon': lon,
+            'accuracy': accuracy,
+            'timestamp': datetime.now().timestamp()
+        }
+        self.last_lat = lat
+        self.last_lon = lon
         
     def load_csv(self, csv_path: str, fps: float = 30.0) -> bool:
         """
@@ -314,14 +322,9 @@ class GPSManager:
         lat, lon = 0.0, 0.0
         
         if self.mode == 'realtime':
-            # Untuk realtime, ambil dari session state / last known position
-            rt_lat, rt_lon = self.get_realtime_position()
-            if rt_lat is not None and rt_lon is not None:
-                lat, lon = rt_lat, rt_lon
-            else:
-                # Fallback ke simulasi jika belum ada data realtime
-                lat, lon = self._get_simulated_location(frame_idx)
-        
+            # ← PERBAIKAN: Gunakan realtime GPS yang benar
+            lat, lon = self.get_realtime_location()
+            
         elif self.mode == 'simulation':
             lat, lon = self._get_simulated_location(frame_idx)
             
@@ -335,14 +338,13 @@ class GPSManager:
             lat, lon = self._get_simulated_location(frame_idx)
         
         # Update tracking
-        if lat != 0.0 and lon != 0.0:
-            self.total_distance_meters += self.haversine_distance(
-                self._prev_lat, self._prev_lon, lat, lon
-            )
-            self._prev_lat = lat
-            self._prev_lon = lon
-            self.last_lat = lat
-            self.last_lon = lon
+        self.total_distance_meters += self.haversine_distance(
+            self._prev_lat, self._prev_lon, lat, lon
+        )
+        self._prev_lat = lat
+        self._prev_lon = lon
+        self.last_lat = lat
+        self.last_lon = lon
         
         return lat, lon
     
@@ -430,8 +432,6 @@ class GPSManager:
         self.total_distance_meters = 0.0
         self._prev_lat = self.start_lat
         self._prev_lon = self.start_lon
-        self.realtime_lat = None
-        self.realtime_lon = None
     
     def get_route_bounds(self) -> Tuple[float, float, float, float]:
         """

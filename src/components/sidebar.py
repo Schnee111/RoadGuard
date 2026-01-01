@@ -159,26 +159,48 @@ http://192.168.1.100:4747/video
         if gps_mode == "🔴 Realtime (Browser)":
             gps_config["mode"] = "realtime"
             
-            st.success("📍 GPS Realtime Aktif")
-            st.caption("Lokasi akan diambil dari browser HP/Laptop Anda")
+            # Cek apakah library tersedia
+            try:
+                from modules.realtime_gps import get_realtime_gps, render_gps_status_widget
+                
+                st.success("📍 GPS Realtime Mode")
+                
+                # Ambil lokasi saat ini
+                gps = get_realtime_gps()
+                lat, lon, acc = gps.get_location()
+                
+                if acc > 0:  # GPS berhasil
+                    col1, col2 = st.columns(2)
+                    col1.metric("Lat", f"{lat:.6f}")
+                    col2.metric("Lon", f"{lon:.6f}")
+                    st.caption(f"📍 Accuracy: {acc:.1f}m")
+                    
+                    # Update config dengan lokasi real
+                    gps_config["start_lat"] = lat
+                    gps_config["start_lon"] = lon
+                else:
+                    st.warning("⏳ Menunggu izin lokasi dari browser...")
+                    st.caption("Pastikan Anda mengizinkan akses lokasi")
+                    
+            except ImportError:
+                st.error("❌ Library tidak tersedia")
+                st.code("pip install streamlit-js-eval", language="bash")
+                gps_config["mode"] = "simulation"  # Fallback
             
             with st.expander("ℹ️ Cara Kerja GPS Realtime"):
                 st.markdown("""
-                **Untuk HP:**
-                1. Buka aplikasi ini di browser HP (Chrome/Safari)
+                **Untuk HP (Lebih Akurat):**
+                1. Buka app ini di browser HP (Chrome/Safari)
                 2. Izinkan akses lokasi saat diminta
                 3. Pastikan GPS HP aktif
-                4. Lokasi akan update otomatis saat bergerak
                 
                 **Untuk Laptop:**
                 1. Browser akan menggunakan WiFi/IP location
-                2. Akurasi mungkin lebih rendah dari HP
-                3. Untuk akurasi lebih baik, gunakan HP
+                2. Akurasi lebih rendah (~100-1000m)
                 
-                **Tips:**
-                - Gunakan HTTPS untuk akses lokasi (localhost ok)
-                - Pastikan browser memiliki permission lokasi
-                - Di outdoor, akurasi GPS HP bisa < 5 meter
+                **Catatan:**
+                - Harus menggunakan HTTPS atau localhost
+                - Permission harus diberikan
                 """)
             
             # Show current GPS status placeholder

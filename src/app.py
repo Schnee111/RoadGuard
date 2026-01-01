@@ -4,7 +4,7 @@ Main Application Entry Point
 
 Features:
 - Multi-source video input (file, webcam, RTSP/IP camera)
-- GPS integration (simulation, manual, GPX/CSV upload)
+- GPS integration (simulation, manual, GPX/CSV upload, REALTIME)
 - IoU-based object tracking (anti-duplicate)
 - SQLite database for persistent storage
 - Interactive map with heatmap and filters
@@ -12,6 +12,7 @@ Features:
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import cv2
 import os
 import time
@@ -22,6 +23,7 @@ from modules.detector import RoadDamageDetector
 from modules.gps_manager import GPSManager
 from modules.tracker import SpatialDamageTracker
 from modules.database import DamageDatabase, get_database
+from modules.realtime_gps import render_realtime_gps, create_gps_component_html, get_realtime_gps
 
 # Import Components
 from components.styling import load_css
@@ -67,7 +69,8 @@ def init_session_state():
         'tracker_min_hits': 2,
         'min_distance': 5.0,
         'view_session': None,
-        'export_session': None
+        'export_session': None,
+        'realtime_gps_main': None,  # For realtime GPS data
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -102,7 +105,18 @@ start_btn, stop_btn, reset_btn, video_path, conf_thresh, gps_config, view_histor
 
 
 # ==========================================
-# 6. BUTTON LOGIC
+# 6. REALTIME GPS WIDGET (if mode is realtime)
+# ==========================================
+if gps_config.get('mode') == 'realtime':
+    with st.sidebar:
+        st.markdown("### 📍 GPS Status")
+        # Render GPS widget di sidebar
+        gps_html = create_gps_component_html("main")
+        components.html(gps_html, height=200, scrolling=False)
+
+
+# ==========================================
+# 7. BUTTON LOGIC
 # ==========================================
 if start_btn and video_path is not None:
     st.session_state['is_running'] = True
@@ -123,7 +137,7 @@ if view_history_btn:
 
 
 # ==========================================
-# 7. HISTORY VIEW MODE
+# 8. HISTORY VIEW MODE
 # ==========================================
 if st.session_state['view_mode'] == 'history':
     render_history_view(db)
@@ -156,7 +170,7 @@ if st.session_state['view_mode'] == 'history':
 
 
 # ==========================================
-# 8. MAIN INSPECTION LAYOUT
+# 9. MAIN INSPECTION LAYOUT
 # ==========================================
 col_left, col_right = st.columns([1.8, 1])
 
@@ -165,12 +179,20 @@ with col_left:
     progress_placeholder = st.empty()
 
 with col_right:
+    # Show GPS widget in main area if realtime mode
+    if gps_config.get('mode') == 'realtime':
+        gps_status_placeholder = st.empty()
+        with gps_status_placeholder.container():
+            st.markdown("#### 📍 Live GPS Tracking")
+            gps_html = create_gps_component_html("display")
+            components.html(gps_html, height=180, scrolling=False)
+    
     map_placeholder = render_live_map_container()
     stats_placeholder = st.empty()
 
 
 # ==========================================
-# 9. VIDEO PROCESSING
+# 10. VIDEO PROCESSING
 # ==========================================
 if st.session_state['is_running'] and video_path is not None:
     
@@ -195,8 +217,12 @@ if st.session_state['is_running'] and video_path is not None:
         start_lon=gps_config.get('start_lon', 107.6188)
     )
     
-    # Load GPS file if provided
-    if gps_config.get('file_path'):
+    # Configure GPS based on mode
+    if gps_config['mode'] == 'realtime':
+        gps_manager.set_realtime_mode('realtime_gps_main')
+        st.info("📍 GPS Realtime Mode: Lokasi diambil dari browser Anda")
+        
+    elif gps_config.get('file_path'):
         if gps_config['mode'] == 'gpx':
             gps_manager.load_gpx(gps_config['file_path'])
         elif gps_config['mode'] == 'csv':
@@ -366,7 +392,7 @@ if st.session_state['is_running'] and video_path is not None:
 
 
 # ==========================================
-# 10. RESULTS SECTION (Always visible)
+# 11. RESULTS SECTION (Always visible)
 # ==========================================
 st.markdown("---")
 
@@ -403,14 +429,14 @@ else:
     4. Click **START** to begin inspection
     
     💡 **Tips:**
-    - Use webcam or IP camera for live inspection
+    - Use **🔴 Realtime GPS** mode when using webcam/IP camera for live inspection
     - Upload GPX file from your GPS tracker for accurate location
     - Check the **HISTORY** button to view past inspections
     """)
 
 
 # ==========================================
-# 11. FOOTER
+# 12. FOOTER
 # ==========================================
 st.markdown("---")
 st.markdown("""

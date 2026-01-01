@@ -12,6 +12,7 @@ __pycache__/
 *.pyd
 
 # --- Database Lokal ---
+results/evidence/
 *.db
 
 # --- Streamlit Secrets ---

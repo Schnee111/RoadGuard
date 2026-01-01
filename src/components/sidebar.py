@@ -356,9 +356,10 @@ http://192.168.1.100:4747/video
         # ==========================================
         st.markdown("---")
         
-        if 'session_id' in st.session_state and st.session_state.get('is_running'):
+        session_id = st.session_state.get('session_id')
+        if session_id and st.session_state.get('is_running'):
             st.markdown("### 📋 Current Session")
-            st.caption(f"ID: `{st.session_state['session_id'][:20]}...`")
+            st.caption(f"ID: `{session_id[:20] if len(session_id) > 20 else session_id}...`")
             
             if 'detections' in st.session_state:
                 st.metric("Damages Found", len(st.session_state['detections']))

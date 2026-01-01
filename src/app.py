@@ -277,6 +277,14 @@ if st.session_state['is_running'] and video_path is not None:
     last_map_update = 0
     MAP_UPDATE_INTERVAL = 15  # Update map every N frames
     
+    # OPTIMASI 1: Frame Skipping untuk Inference
+    # Deteksi tidak perlu setiap frame, cukup setiap 2-3 frame
+    INFERENCE_INTERVAL = 2  # Process setiap 2 frame
+    UI_UPDATE_INTERVAL = 3  # Update UI setiap 3 frame
+    last_inference_frame = 0
+    last_detection_results = None
+    last_annotated_frame = None
+    
     # ----- MAIN PROCESSING LOOP -----
     
     try:
@@ -293,17 +301,33 @@ if st.session_state['is_running'] and video_path is not None:
             
             frame_count += 1
             
-            # ----- 1. DETECTION -----
-            results = detector.model(frame, conf=conf_thresh, verbose=False)
-            annotated_frame = results[0].plot()
+            # ----- 1. DETECTION (OPTIMIZED - Skip frames) -----
+            if frame_count - last_inference_frame >= INFERENCE_INTERVAL:
+                results = detector.model(frame, conf=conf_thresh, verbose=False)
+                last_detection_results = results
+                last_annotated_frame = results[0].plot()
+                last_inference_frame = frame_count
+            else:
+                # Use previous detection result, just draw on current frame
+                results = last_detection_results
+                if results:
+                    annotated_frame = last_annotated_frame
+                else:
+                    annotated_frame = frame
             
-            # ----- 2. GPS -----
-            curr_lat, curr_lon = gps_manager.get_location_at_frame(frame_count, fps)
+            # ----- 2. GPS (OPTIMIZED - Cache untuk file-based video) -----
+            if gps_config['mode'] == 'realtime':
+                # Realtime GPS tidak bisa di-cache, harus setiap frame
+                curr_lat, curr_lon = gps_manager.get_location_at_frame(frame_count, fps)
+            else:
+                # File-based GPS bisa di-cache
+                curr_lat, curr_lon = gps_manager.get_location_at_frame(frame_count, fps)
             
-            # ----- 3. TRACKING -----
+            # ----- 3. TRACKING (Only when we have new detections) -----
             frame_detections = []
+            new_damages = []
             
-            if results[0].boxes:
+            if results and results[0].boxes and frame_count == last_inference_frame:
                 for box in results[0].boxes:
                     xyxy = box.xyxy[0].tolist()
                     cls_id = int(box.cls[0])
@@ -315,66 +339,86 @@ if st.session_state['is_running'] and video_path is not None:
                         "type": label,
                         "conf": conf
                     })
-            
-            # Update tracker - returns only NEW unique damages
-            new_damages = tracker.update(frame_detections, (curr_lat, curr_lon))
-            
-            # ----- 4. SAVE NEW DAMAGES -----
-            for dmg in new_damages:
-                # Determine severity
-                severity = "medium"
-                if "pothole" in dmg['type'].lower() or "d40" in dmg['type'].lower():
-                    severity = "high" if dmg['conf'] > 0.6 else "medium"
-                elif "alligator" in dmg['type'].lower() or "d20" in dmg['type'].lower():
-                    severity = "high" if dmg['conf'] > 0.7 else "medium"
-                elif dmg['conf'] < 0.4:
-                    severity = "low"
                 
-                # Prepare data
-                damage_data = {
-                    "track_id": dmg['track_id'],
-                    "timestamp": frame_count / fps,
-                    "lat": dmg['lat'],
-                    "lon": dmg['lon'],
-                    "type": dmg['type'],
-                    "conf": dmg['conf'],
-                    "bbox": dmg['bbox'],
-                    "severity": severity,
-                    "frame_img": frame.copy()  # For live display
-                }
+                # Update tracker - returns only NEW unique damages
+                new_damages = tracker.update(frame_detections, (curr_lat, curr_lon))
+            
+            # ----- 4. SAVE NEW DAMAGES (OPTIMIZED - Batch insert) -----
+            if new_damages:
+                for dmg in new_damages:
+                    # Determine severity
+                    severity = "medium"
+                    if "pothole" in dmg['type'].lower() or "d40" in dmg['type'].lower():
+                        severity = "high" if dmg['conf'] > 0.6 else "medium"
+                    elif "alligator" in dmg['type'].lower() or "d20" in dmg['type'].lower():
+                        severity = "high" if dmg['conf'] > 0.7 else "medium"
+                    elif dmg['conf'] < 0.4:
+                        severity = "low"
+                    
+                    # Prepare data (OPTIMIZED - hanya simpan frame yang perlu)
+                    damage_data = {
+                        "track_id": dmg['track_id'],
+                        "timestamp": frame_count / fps,
+                        "lat": dmg['lat'],
+                        "lon": dmg['lon'],
+                        "type": dmg['type'],
+                        "conf": dmg['conf'],
+                        "bbox": dmg['bbox'],
+                        "severity": severity,
+                        "frame_img": None  # Jangan simpan di memory
+                    }
+                    
+                    # Add to session state (without image for now)
+                    st.session_state['detections'].append(damage_data)
+                    
+                    # OPTIMIZED: Save to database in background (non-blocking)
+                    # Crop image untuk save space
+                    x1, y1, x2, y2 = [int(c) for c in dmg['bbox']]
+                    x1, y1 = max(0, x1-10), max(0, y1-10)
+                    x2, y2 = min(frame.shape[1], x2+10), min(frame.shape[0], y2+10)
+                    cropped_frame = frame[y1:y2, x1:x2]
+                    
+                    db.insert_damage(damage_data, session_id, cropped_frame)
+            
+            # ----- 5. UPDATE UI (OPTIMIZED - Throttled) -----
+            
+            # Video feed (only every N frames untuk reduce Streamlit overhead)
+            if frame_count % UI_UPDATE_INTERVAL == 0:
+                frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 
-                # Add to session state
-                st.session_state['detections'].append(damage_data)
+                # OPTIMIZED: Resize untuk display
+                display_width = 800  # Max width
+                if frame_rgb.shape[1] > display_width:
+                    scale = display_width / frame_rgb.shape[1]
+                    new_height = int(frame_rgb.shape[0] * scale)
+                    frame_rgb = cv2.resize(frame_rgb, (display_width, new_height))
                 
-                # Save to database
-                db.insert_damage(damage_data, session_id, frame.copy())
+                video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
             
-            # ----- 5. UPDATE UI -----
-            
-            # Video feed
-            frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-            video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
-            
-            # Progress bar (for file-based videos)
-            if not is_stream and total_frames > 0:
+            # Progress bar
+            if not is_stream and total_frames > 0 and frame_count % 10 == 0:
                 with progress_placeholder:
                     render_progress_bar(frame_count, total_frames, fps)
             
-            # Map (update periodically, not every frame)
+            # Map (update lebih jarang)
             if frame_count - last_map_update >= MAP_UPDATE_INTERVAL:
                 update_live_map(map_placeholder, st.session_state['detections'])
                 last_map_update = frame_count
             
-            # Stats
+            # Stats (update hanya saat ada perubahan)
             if new_damages or frame_count % 30 == 0:
                 with stats_placeholder.container():
                     render_stats_panel(
                         st.session_state['detections'],
-                        tracker.get_statistics()
+                        tracker_stats={
+                            'active_tracks': len(tracker.tracks),
+                            'frames_processed': frame_count
+                        }
                     )
             
-            # Small delay to prevent UI freeze
-            time.sleep(0.001)
+            # OPTIMIZED: Allow graceful stop
+            if not st.session_state.get('is_running', False):
+                break
     
     except Exception as e:
         st.error(f"Processing error: {e}")

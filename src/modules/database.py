@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, asdict
 from contextlib import contextmanager
+import time
 
 
 @dataclass
@@ -165,7 +166,7 @@ class DamageDatabase:
         cv2.imwrite(filepath, frame)
         return filepath
     
-    def insert_damage(self, data: dict, session_id: str, frame=None) -> int:
+    def insert_damage(self, data: dict, session_id: str, frame_image=None) -> int:
         """
         Simpan satu record kerusakan.
         
@@ -179,8 +180,8 @@ class DamageDatabase:
         """
         # Simpan gambar jika ada
         image_path = ""
-        if frame is not None:
-            image_path = self.save_evidence_image(frame)
+        if frame_image is not None:
+            image_path = self.save_evidence_image(frame_image)
         
         # Konversi bbox ke JSON string
         bbox_str = ""

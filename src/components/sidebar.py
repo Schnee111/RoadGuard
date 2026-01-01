@@ -338,6 +338,25 @@ http://192.168.1.100:4747/video
                 help="Jarak minimal antar kerusakan yang sama (spatial dedup)"
             )
         
+        with st.expander("⚡ Performance Settings"):
+            performance_mode = st.selectbox(
+                "Performance Mode",
+                ["Balanced", "High Quality (Slow)", "Fast (Lower Quality)"]
+            )
+            
+            if performance_mode == "Fast (Lower Quality)":
+                st.session_state['inference_interval'] = 3
+                st.session_state['ui_update_interval'] = 5
+                st.session_state['display_width'] = 640
+            elif performance_mode == "High Quality (Slow)":
+                st.session_state['inference_interval'] = 1
+                st.session_state['ui_update_interval'] = 1
+                st.session_state['display_width'] = 1280
+            else:  # Balanced
+                st.session_state['inference_interval'] = 2
+                st.session_state['ui_update_interval'] = 3
+                st.session_state['display_width'] = 800
+        
         st.markdown("---")
         
         # ==========================================

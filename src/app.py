@@ -1,6 +1,7 @@
 import streamlit as st
 import cv2
 import pandas as pd
+import time
 from modules.detector import RoadDamageDetector
 from modules.gps_manager import GPSManager
 
@@ -70,10 +71,30 @@ if start_btn:
     cooldown_tracker = {} 
     COOLDOWN_FRAMES = 90  # 90 frame = kira-kira 3 detik (asumsi 30fps)
     
+    # VARIABEL UNTUK HITUNG FPS
+    prev_time = 0
+    curr_time = 0
+    fps_list = [] # Untuk menyimpan semua nilai FPS agar bisa dirata-rata nanti
+    
+    col1, col2 = st.columns([3, 1]) # Buat kolom biar FPS tampil di sebelah video
+    
+    with col1:
+        video_placeholder = render_video_container()
+    with col2:
+        fps_placeholder = st.empty() # Placeholder untuk angka FPS
+        stats_placeholder = st.empty()
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret: break
         
+        # --- LOGIKA HITUNG FPS (Mulai) ---
+        curr_time = time.time()
+        fps = 1 / (curr_time - prev_time) if prev_time != 0 else 0
+        prev_time = curr_time
+        fps_list.append(fps) # Simpan ke list
+        # --- LOGIKA HITUNG FPS (Selesai) ---
+
         frame_count += 1
         
         # 1. VISUAL: Selalu deteksi & gambar kotak (Visual Real-time)
@@ -113,6 +134,9 @@ if start_btn:
         # 4. UPDATE UI
         frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
         video_placeholder.image(frame_rgb, channels="RGB", width='stretch')
+
+        # Tampilkan FPS secara Real-time
+        fps_placeholder.metric("Processing Speed", f"{int(fps)} FPS")
         
         if has_new_valid_data:
             update_live_map(map_placeholder, st.session_state['detections'])
@@ -121,6 +145,9 @@ if start_btn:
 
     cap.release()
     st.success("Inspection Complete.")
+    # HITUNG RATA-RATA AKHIR
+    avg_fps = sum(fps_list) / len(fps_list) if fps_list else 0
+    st.success(f"Inspection Complete. Average FPS: {avg_fps:.2f}")
 
 # Render Laporan Akhir
 st.markdown("---")

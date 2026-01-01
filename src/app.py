@@ -207,16 +207,22 @@ with col_right:
 # ==========================================
 
 # Check if using browser camera
-use_browser_camera = st.session_state.get('use_browser_camera', False) and video_path == "BROWSER_CAMERA"
+use_browser_camera = st.session_state.get('use_browser_camera', False)
 
-if use_browser_camera and HAS_WEBRTC:
+if use_browser_camera:
     # ==========================================
     # BROWSER CAMERA MODE (HP/Laptop)
     # ==========================================
-    st.markdown("### 📱 Browser Camera Mode")
+    st.markdown("### 📱 Browser Camera")
+    st.info("Izinkan akses kamera saat browser meminta. Kamera HP akan otomatis menggunakan kamera belakang.")
     
-    # Render browser camera widget
-    webrtc_ctx = render_browser_camera("main_camera")
+    if not HAS_WEBRTC:
+        st.error("❌ Library streamlit-webrtc tidak tersedia!")
+        st.code("pip install streamlit-webrtc av", language="bash")
+        webrtc_ctx = None
+    else:
+        # Render browser camera widget
+        webrtc_ctx = render_browser_camera("main_camera")
     
     if webrtc_ctx and webrtc_ctx.state.playing:
         st.success("📹 Camera is streaming! Processing frames...")
@@ -302,17 +308,9 @@ if use_browser_camera and HAS_WEBRTC:
             update_live_map(map_placeholder, st.session_state['detections'])
     
     elif webrtc_ctx:
-        st.info("👆 Click START to begin camera streaming")
-    else:
-        st.warning("⚠️ Browser camera not available. Check if streamlit-webrtc is installed.")
+        st.info("👆 Click **START** to begin camera streaming")
 
-elif use_browser_camera and not HAS_WEBRTC:
-    # WebRTC tidak tersedia
-    st.error("❌ Browser camera requires streamlit-webrtc library!")
-    st.code("pip install streamlit-webrtc av", language="bash")
-    st.info("After installing, restart the application.")
-
-elif st.session_state['is_running'] and video_path is not None:
+elif st.session_state['is_running'] and video_path is not None and video_path != "BROWSER_CAMERA":
     
     # ----- INITIALIZATION -----
     

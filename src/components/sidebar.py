@@ -31,12 +31,13 @@ def render_sidebar():
         
         source_type = st.radio(
             "Input Source", 
-            ["Demo Video", "Upload File", "� Browser Camera (HP/Laptop)", "�📷 Webcam", "📡 IP Camera/RTSP"],
+            ["Demo Video", "Upload File", "Browser Camera", "IP Camera/RTSP"],
             label_visibility="collapsed",
             help="Pilih sumber video untuk inspeksi"
         )
         
-        video_path = "video/jalan_rusak_demo.mp4"  # Default
+        video_path = None  # Default None
+        st.session_state['use_browser_camera'] = False  # Reset flag
         
         if source_type == "Demo Video":
             # Cek apakah demo video tersedia
@@ -73,58 +74,22 @@ def render_sidebar():
             else:
                 video_path = None
         
-        elif source_type == "📱 Browser Camera (HP/Laptop)":
-            st.success("✅ **Tanpa Install App!**")
+        elif source_type == "Browser Camera":
+            st.success("📱 **Kamera HP/Laptop via Browser**")
             st.markdown("""
-            Kamera HP/Laptop langsung via browser:
+            **Tanpa install aplikasi apapun!**
             
-            1. **Di HP:** Buka URL aplikasi ini di Chrome/Safari
-            2. **Izinkan** akses kamera saat diminta
-            3. Tekan **START** untuk mulai inspeksi
+            📱 **HP:** Buka URL ini di Chrome/Safari  
+            💻 **Laptop:** Langsung pakai webcam
             
-            💡 *HP dan server harus di WiFi yang sama*
+            Kamera akan aktif otomatis di bawah.
             """)
             
             # Set flag untuk browser camera mode
             video_path = "BROWSER_CAMERA"
             st.session_state['use_browser_camera'] = True
-                
-        elif source_type == "📷 Webcam":
-            # Pilihan kamera
-            camera_idx = st.number_input(
-                "Camera Index", 
-                min_value=0, 
-                max_value=5, 
-                value=0,
-                help="0 = webcam default, 1-5 = kamera eksternal"
-            )
-            video_path = int(camera_idx)
-            st.info("💡 Webcam akan aktif saat START ditekan")
             
-            # Saran untuk HP
-            with st.expander("📱 Gunakan Kamera HP"):
-                st.markdown("""
-                **Untuk menggunakan kamera HP sebagai webcam:**
-                
-                1. **Android - DroidCam:**
-                   - Install DroidCam di HP (Play Store)
-                   - Install DroidCam Client di laptop
-                   - Hubungkan via WiFi atau USB
-                   - Pilih Camera Index yang sesuai
-                
-                2. **Android - IP Webcam:**
-                   - Install IP Webcam (Play Store)
-                   - Start server di HP
-                   - Gunakan mode "IP Camera/RTSP"
-                   - Masukkan URL: `http://IP_HP:8080/video`
-                
-                3. **iPhone - EpocCam:**
-                   - Install EpocCam di iPhone
-                   - Install driver di laptop
-                   - Hubungkan via WiFi
-                """)
-            
-        elif source_type == "📡 IP Camera/RTSP":
+        elif source_type == "IP Camera/RTSP":
             rtsp_url = st.text_input(
                 "RTSP/HTTP URL",
                 placeholder="rtsp://192.168.1.1:554/stream",

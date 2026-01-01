@@ -19,6 +19,11 @@ def render_stats_panel(detections: list, tracker_stats: dict = None):
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     render_icon_header("dashboard", "Real-time Metrics")
     
+    # DEBUG: Print detections count
+    print(f"[STATS] Rendering stats with {len(detections)} detections")
+    if detections and len(detections) <= 3:
+        print(f"[STATS] Sample detections: {detections}")
+    
     # Hitung statistik
     total_count = len(detections)
     

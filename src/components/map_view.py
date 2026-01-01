@@ -32,12 +32,31 @@ def encode_image_to_base64(cv2_img) -> str:
 
 def load_image_from_path(image_path: str) -> str:
     """Load gambar dari file path dan konversi ke base64"""
-    if not image_path or not os.path.exists(image_path):
+    if not image_path:
+        print(f"⚠️ No image path provided")
         return ""
+    
+    # Normalize path untuk cross-platform
+    image_path = os.path.normpath(image_path)
+    
+    if not os.path.exists(image_path):
+        print(f"⚠️ Image file not found: {image_path}")
+        # Try with absolute path
+        abs_path = os.path.abspath(image_path)
+        if os.path.exists(abs_path):
+            image_path = abs_path
+            print(f"✅ Found using absolute path: {abs_path}")
+        else:
+            return ""
+    
     try:
         with open(image_path, 'rb') as f:
-            return base64.b64encode(f.read()).decode('utf-8')
-    except Exception:
+            img_data = f.read()
+            b64 = base64.b64encode(img_data).decode('utf-8')
+            print(f"✅ Loaded image from: {image_path} (size: {len(img_data)} bytes)")
+            return b64
+    except Exception as e:
+        print(f"❌ Error loading image {image_path}: {e}")
         return ""
 
 
@@ -106,7 +125,7 @@ def update_live_map(placeholder, detections: list):
                 longitude='lon', 
                 size=20, 
                 zoom=15,
-                use_container_width=True
+                width='stretch'
             )
 
 
@@ -257,6 +276,14 @@ def render_analysis_map(detections: list, db=None, show_filters: bool = True):
             # Prepare image HTML
             img_html = ""
             
+            # Debug: print row data
+            print("\n=== Processing marker", idx, "===")
+            print("Type:", row.get('type'))
+            print("Has frame_img:", 'frame_img' in row and row['frame_img'] is not None)
+            print("Has image_path:", 'image_path' in row and row.get('image_path'))
+            if 'image_path' in row:
+                print("Image path value:", row['image_path'])
+            
             # Cek apakah ada gambar dari frame_img (memory)
             if 'frame_img' in row and row['frame_img'] is not None:
                 try:
@@ -267,17 +294,22 @@ def render_analysis_map(detections: list, db=None, show_filters: bool = True):
                         <img src="data:image/jpeg;base64,{b64_str}" 
                              style="width:240px; border-radius:8px; margin-top:8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
                         '''
-                except Exception:
-                    pass
+                        print("✅ Using frame_img (memory)")
+                except Exception as e:
+                    print("❌ Error encoding frame_img:", e)
             
             # Atau dari image_path (database)
             elif 'image_path' in row and row['image_path']:
+                print("Attempting to load from path:", row['image_path'])
                 b64_str = load_image_from_path(row['image_path'])
                 if b64_str:
                     img_html = f'''
                     <img src="data:image/jpeg;base64,{b64_str}" 
                          style="width:240px; border-radius:8px; margin-top:8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
                     '''
+                    print("✅ Using image_path (database)")
+                else:
+                    print("❌ Failed to load image from path")
             
             # Severity badge color
             sev = row.get('severity', 'medium')
@@ -329,7 +361,7 @@ def render_analysis_map(detections: list, db=None, show_filters: bool = True):
     folium.LayerControl().add_to(m)
     
     # Render map
-    st_folium(m, use_container_width=True, height=500)
+    st_folium(m, width='stretch', height=500)
     
     # ==========================================
     # STATISTICS SUMMARY
@@ -377,7 +409,7 @@ def render_analysis_map(detections: list, db=None, show_filters: bool = True):
     if 'lon' in display_df.columns:
         display_df['lon'] = display_df['lon'].apply(lambda x: f"{x:.6f}")
     
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width='stretch', hide_index=True)
 
 
 def render_history_map(db, session_id: str = None):

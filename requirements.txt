@@ -1,7 +1,26 @@
-streamlit
-ultralytics
-opencv-python-headless
-folium
-streamlit-folium
-pandas
-Pillow
+# RoadGuard Vision - Dependencies
+# Core Framework
+streamlit>=1.28.0
+
+# Computer Vision
+ultralytics>=8.0.0
+opencv-python-headless>=4.8.0
+
+# Mapping
+folium>=0.14.0
+streamlit-folium>=0.15.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# PDF Report Generation (optional)
+reportlab>=4.0.0
+
+# GPX Parsing (built-in xml.etree, no extra package needed)
+
+# Additional utilities
+python-dateutil>=2.8.0

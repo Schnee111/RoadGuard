@@ -99,12 +99,19 @@ class DamageDatabase:
                     start_time TEXT NOT NULL,
                     end_time TEXT,
                     video_source TEXT,
+                    video_path TEXT,
                     total_damages INTEGER DEFAULT 0,
                     total_distance_km REAL DEFAULT 0,
                     status TEXT DEFAULT 'in_progress',
                     notes TEXT DEFAULT ''
                 )
             """)
+            
+            # Add video_path column if not exists (migration for existing DB)
+            try:
+                conn.execute("ALTER TABLE sessions ADD COLUMN video_path TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             
             # Index untuk query yang sering digunakan
             conn.execute("CREATE INDEX IF NOT EXISTS idx_damages_session ON damages(session_id)")
@@ -123,7 +130,7 @@ class DamageDatabase:
         
         return session_id
     
-    def end_session(self, session_id: str, total_distance_km: float = 0):
+    def end_session(self, session_id: str, total_distance_km: float = 0, video_path: str = None):
         """Akhiri sesi inspeksi"""
         with self._get_connection() as conn:
             # Hitung total damages
@@ -133,11 +140,18 @@ class DamageDatabase:
             )
             total_damages = cursor.fetchone()[0]
             
-            conn.execute("""
-                UPDATE sessions 
-                SET end_time = ?, total_damages = ?, total_distance_km = ?, status = 'completed'
-                WHERE id = ?
-            """, (datetime.now().isoformat(), total_damages, total_distance_km, session_id))
+            if video_path:
+                conn.execute("""
+                    UPDATE sessions 
+                    SET end_time = ?, total_damages = ?, total_distance_km = ?, status = 'completed', video_path = ?
+                    WHERE id = ?
+                """, (datetime.now().isoformat(), total_damages, total_distance_km, video_path, session_id))
+            else:
+                conn.execute("""
+                    UPDATE sessions 
+                    SET end_time = ?, total_damages = ?, total_distance_km = ?, status = 'completed'
+                    WHERE id = ?
+                """, (datetime.now().isoformat(), total_damages, total_distance_km, session_id))
     
     def save_evidence_image(self, frame, damage_id: int = None) -> str:
         """

@@ -76,14 +76,6 @@ def render_sidebar():
         
         elif source_type == "Browser Camera":
             st.success("📱 **Kamera HP/Laptop via Browser**")
-            st.markdown("""
-            **Tanpa install aplikasi apapun!**
-            
-            📱 **HP:** Buka URL ini di Chrome/Safari  
-            💻 **Laptop:** Langsung pakai webcam
-            
-            Kamera akan aktif otomatis di bawah.
-            """)
             
             # Set flag untuk browser camera mode
             video_path = "BROWSER_CAMERA"
@@ -123,7 +115,7 @@ http://192.168.1.100:4747/video
         
         gps_mode = st.radio(
             "GPS Mode",
-            ["🔴 Realtime (Browser)", "Simulasi", "Manual Input", "Upload GPX/CSV"],
+            ["Realtime (Browser)", "Simulasi", "Manual Input", "Upload GPX/CSV"],
             label_visibility="collapsed",
             help="Pilih sumber data lokasi GPS"
         )
@@ -137,7 +129,7 @@ http://192.168.1.100:4747/video
             "file_path": None
         }
         
-        if gps_mode == "🔴 Realtime (Browser)":
+        if gps_mode == "Realtime (Browser)":
             gps_config["mode"] = "realtime"
             
             # Cek apakah library tersedia
@@ -293,30 +285,59 @@ http://192.168.1.100:4747/video
         )
         
         with st.expander("⚙️ Advanced Settings"):
+            st.markdown("##### 🎯 ByteTrack Parameters")
+            
+            st.session_state['tracker_high_thresh'] = st.slider(
+                "High Confidence Threshold",
+                min_value=0.1,
+                max_value=0.9,
+                value=0.3,
+                step=0.05,
+                help="Deteksi dengan confidence >= threshold ini akan langsung diproses. Lebih rendah = lebih banyak deteksi diproses"
+            )
+            
+            st.session_state['tracker_low_thresh'] = st.slider(
+                "Low Confidence Threshold",
+                min_value=0.05,
+                max_value=0.5,
+                value=0.1,
+                step=0.05,
+                help="Deteksi dengan confidence >= threshold ini bisa di-match dengan track existing. Filter noise"
+            )
+            
             st.session_state['tracker_iou'] = st.slider(
-                "Tracker IoU Threshold",
+                "Match IoU Threshold",
                 min_value=0.1,
                 max_value=0.8,
                 value=0.3,
                 step=0.05,
-                help="Threshold untuk menganggap 2 deteksi adalah objek yang sama"
+                help="IoU threshold untuk matching deteksi dengan track. Lebih rendah = lebih mudah match"
             )
             
-            st.session_state['tracker_min_hits'] = st.slider(
-                "Min Detection Hits",
-                min_value=1,
-                max_value=5,
-                value=2,
-                help="Minimal berapa frame terdeteksi sebelum dianggap valid"
+            st.session_state['tracker_max_age'] = st.slider(
+                "Max Track Age (frames)",
+                min_value=5,
+                max_value=60,
+                value=30,
+                step=5,
+                help="Berapa frame track bisa hilang sebelum dihapus. Lebih tinggi = track lebih persisten"
             )
+            
+            st.markdown("##### 📍 GPS Deduplication")
             
             st.session_state['min_distance'] = st.slider(
                 "Min GPS Distance (m)",
                 min_value=1.0,
-                max_value=20.0,
-                value=5.0,
+                max_value=50.0,
+                value=10.0,
                 step=1.0,
                 help="Jarak minimal antar kerusakan yang sama (spatial dedup)"
+            )
+            
+            st.session_state['enable_spatial_dedup'] = st.checkbox(
+                "Enable GPS-based Deduplication",
+                value=True,
+                help="Jika dimatikan, semua deteksi akan tersimpan (mungkin ada duplikat)"
             )
         
         with st.expander("⚡ Performance Settings"):
@@ -423,8 +444,13 @@ def render_history_view(db):
             col1, col2, col3 = st.columns(3)
             if col1.button("📍 View Map", key=f"map_{session_dict['id']}"):
                 st.session_state['view_session'] = session_dict['id']
+                st.session_state['action_pending'] = 'view_map'
+                st.rerun()
             if col2.button("📥 Export", key=f"export_{session_dict['id']}"):
                 st.session_state['export_session'] = session_dict['id']
+                st.session_state['action_pending'] = 'export'
+                st.rerun()
             if col3.button("🗑️ Delete", key=f"del_{session_dict['id']}"):
                 db.delete_session(session_dict['id'])
+                st.success(f"✅ Session deleted: {session_dict['id'][:20]}...")
                 st.rerun()

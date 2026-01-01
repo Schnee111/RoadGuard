@@ -21,7 +21,7 @@ from datetime import datetime
 # Import Modules
 from modules.detector import RoadDamageDetector
 from modules.gps_manager import GPSManager
-from modules.tracker import SpatialDamageTracker
+from modules.bytetrack import ByteTracker as SpatialDamageTracker  # Using ByteTrack!
 from modules.database import DamageDatabase, get_database
 from modules.realtime_gps import render_realtime_gps, create_gps_component_html, get_realtime_gps
 
@@ -153,29 +153,158 @@ if view_history_btn:
 if st.session_state['view_mode'] == 'history':
     render_history_view(db)
     
-    # Handle view specific session
-    if st.session_state.get('view_session'):
+    # Handle view specific session - MAP VIEW
+    if st.session_state.get('view_session') and st.session_state.get('action_pending') == 'view_map':
         st.markdown("---")
-        render_history_map(db, st.session_state['view_session'])
-        st.session_state['view_session'] = None
+        st.markdown("### 📍 Session Map & Details")
+        
+        session_id = st.session_state['view_session']
+        records = db.get_damages_by_session(session_id)
+        
+        # Get session info for video path
+        sessions = db.get_all_sessions()
+        session_info = next((s for s in sessions if s['id'] == session_id), None)
+        video_path_history = session_info.get('video_path') if session_info else None
+        
+        if records or video_path_history:
+            # Show processed video with bounding boxes (if available)
+            if video_path_history and os.path.exists(video_path_history):
+                st.markdown("#### 🎬 Full Video with Bounding Boxes")
+                st.video(video_path_history)
+                st.caption(f"📁 Video path: {video_path_history}")
+            
+            if records:
+                st.markdown("#### 🖼️ Detected Damages Gallery")
+                
+                # View mode selection
+                view_mode_choice = st.radio(
+                    "Display Mode",
+                    ["Grid View", "Slideshow"],
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+            
+            if view_mode_choice == "Grid View":
+                # Display images in grid
+                cols_per_row = 3
+                for i in range(0, len(records), cols_per_row):
+                    cols = st.columns(cols_per_row)
+                    for j, col in enumerate(cols):
+                        if i + j < len(records):
+                            record = records[i + j]
+                            with col:
+                                if record.image_path and os.path.exists(record.image_path):
+                                    st.image(record.image_path, use_container_width=True)
+                                    st.markdown(f"**{record.damage_type}**")
+                                    
+                                    # Info badges
+                                    severity_color = {
+                                        'high': '🔴',
+                                        'medium': '🟠', 
+                                        'low': '🟢'
+                                    }.get(record.severity, '⚪')
+                                    
+                                    st.caption(f"{severity_color} {record.severity.upper()} | Conf: {record.confidence:.1%}")
+                                    st.caption(f"📍 {record.latitude:.6f}, {record.longitude:.6f}")
+                                    st.caption(f"⏱️ {record.timestamp:.1f}s")
+                                else:
+                                    st.warning("Image not available")
+            else:
+                # Slideshow mode
+                if 'slideshow_index' not in st.session_state:
+                    st.session_state['slideshow_index'] = 0
+                
+                idx = st.session_state['slideshow_index']
+                record = records[idx]
+                
+                # Display current image
+                col1, col2, col3 = st.columns([1, 3, 1])
+                
+                with col2:
+                    if record.image_path and os.path.exists(record.image_path):
+                        st.image(record.image_path, use_container_width=True)
+                    else:
+                        st.warning("Image not available")
+                    
+                    # Info
+                    st.markdown(f"### {record.damage_type}")
+                    
+                    severity_emoji = {
+                        'high': '🔴',
+                        'medium': '🟠',
+                        'low': '🟢'
+                    }.get(record.severity, '⚪')
+                    
+                    col_a, col_b, col_c = st.columns(3)
+                    col_a.metric("Severity", f"{severity_emoji} {record.severity.upper()}")
+                    col_b.metric("Confidence", f"{record.confidence:.1%}")
+                    col_c.metric("Time", f"{record.timestamp:.1f}s")
+                    
+                    st.markdown(f"**Location:** {record.latitude:.6f}, {record.longitude:.6f}")
+                
+                # Navigation
+                col_prev, col_info, col_next = st.columns([1, 2, 1])
+                
+                with col_prev:
+                    if st.button("⬅️ Previous", disabled=(idx == 0)):
+                        st.session_state['slideshow_index'] -= 1
+                        st.rerun()
+                
+                with col_info:
+                    st.markdown(f"<center>{idx + 1} / {len(records)}</center>", unsafe_allow_html=True)
+                
+                with col_next:
+                    if st.button("Next ➡️", disabled=(idx == len(records) - 1)):
+                        st.session_state['slideshow_index'] += 1
+                        st.rerun()
+            
+            if records:
+                st.markdown("---")
+                
+                # Show map
+                st.markdown("#### 🗺️ Damage Locations Map")
+                render_history_map(db, session_id)
+        else:
+            st.warning("No damage records or video found for this session.")
+        
+        # Clear action
+        if st.button("✖️ Close Details"):
+            st.session_state['view_session'] = None
+            st.session_state['action_pending'] = None
+            st.rerun()
     
     # Handle export
-    if st.session_state.get('export_session'):
-        records = db.get_damages_by_session(st.session_state['export_session'])
-        detections = [
-            {
-                'lat': r.latitude, 'lon': r.longitude, 'type': r.damage_type,
-                'timestamp': r.timestamp, 'conf': r.confidence, 'severity': r.severity
-            }
-            for r in records
-        ]
-        render_export_buttons(detections, db, st.session_state['export_session'])
-        st.session_state['export_session'] = None
+    elif st.session_state.get('export_session') and st.session_state.get('action_pending') == 'export':
+        st.markdown("---")
+        st.markdown("### 📥 Export Session Data")
+        
+        session_id = st.session_state['export_session']
+        records = db.get_damages_by_session(session_id)
+        
+        if records:
+            detections = [
+                {
+                    'lat': r.latitude, 'lon': r.longitude, 'type': r.damage_type,
+                    'timestamp': r.timestamp, 'conf': r.confidence, 'severity': r.severity,
+                    'image_path': r.image_path
+                }
+                for r in records
+            ]
+            render_export_buttons(detections, db, session_id)
+        else:
+            st.warning("No data to export.")
+        
+        # Clear action
+        if st.button("✖️ Close Export"):
+            st.session_state['export_session'] = None
+            st.session_state['action_pending'] = None
+            st.rerun()
     
-    # Back button
-    if st.button("⬅️ Back to Inspection"):
-        st.session_state['view_mode'] = 'inspection'
-        st.rerun()
+    # Back button (only show if no action pending)
+    if not st.session_state.get('action_pending'):
+        if st.button("⬅️ Back to Inspection"):
+            st.session_state['view_mode'] = 'inspection'
+            st.rerun()
     
     st.stop()
 
@@ -235,7 +364,14 @@ if use_browser_camera:
                 model_path = 'models/YOLOv8_Small_RDD.pt'
             
             st.session_state['browser_detector'] = RoadDamageDetector(model_path=model_path)
-            st.session_state['browser_tracker'] = SpatialDamageTracker(iou_threshold=0.3, max_age=45, min_hits=1)
+            st.session_state['browser_tracker'] = SpatialDamageTracker(
+                high_thresh=st.session_state.get('tracker_high_thresh', 0.3),
+                low_thresh=st.session_state.get('tracker_low_thresh', 0.1),
+                match_thresh=st.session_state.get('tracker_iou', 0.3),
+                max_age=st.session_state.get('tracker_max_age', 30),
+                min_hits=1,
+                min_distance_meters=st.session_state.get('min_distance', 10.0)
+            )
             st.session_state['browser_gps'] = GPSManager(mode=gps_config.get('mode', 'simulation'))
             st.session_state['browser_session'] = db.create_session("browser_camera")
             st.session_state['browser_cam_initialized'] = True
@@ -359,13 +495,18 @@ elif st.session_state['is_running'] and video_path is not None and video_path !=
             total_frames=total_frames
         )
     
-    # Initialize Tracker
+    # Initialize ByteTracker (SOTA tracking algorithm)
     tracker = SpatialDamageTracker(
-        iou_threshold=st.session_state.get('tracker_iou', 0.3),
-        max_age=45,  # ~1.5 detik pada 30fps (lebih toleran)
-        min_hits=1,  # Simpan langsung saat terdeteksi pertama kali
-        min_distance_meters=st.session_state.get('min_distance', 5.0)
+        high_thresh=st.session_state.get('tracker_high_thresh', 0.3),  # High confidence threshold
+        low_thresh=st.session_state.get('tracker_low_thresh', 0.1),   # Low confidence threshold
+        match_thresh=st.session_state.get('tracker_iou', 0.3),        # IoU threshold
+        max_age=st.session_state.get('tracker_max_age', 30),          # Track persistence
+        min_hits=1,  # Langsung simpan
+        min_distance_meters=st.session_state.get('min_distance', 10.0)
     )
+    
+    # Set spatial dedup flag
+    tracker.enable_spatial_dedup = st.session_state.get('enable_spatial_dedup', True)
     
     # Create session
     video_source_str = str(video_path) if not isinstance(video_path, int) else f"Webcam {video_path}"
@@ -389,14 +530,27 @@ elif st.session_state['is_running'] and video_path is not None and video_path !=
     # For webcam/stream, total_frames might be 0
     is_stream = total_frames <= 0
     
+    # Initialize Video Writer to save processed video with bounding boxes
+    output_video_path = None
+    temp_video_path = None
+    video_writer = None
+    if not is_stream:  # Only save for file-based videos
+        os.makedirs("results/videos", exist_ok=True)
+        output_video_path = f"results/videos/{session_id}.mp4"
+        temp_video_path = f"results/videos/{session_id}_temp.avi"
+        # Use AVI format with XVID codec (more compatible for writing)
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        video_writer = cv2.VideoWriter(temp_video_path, fourcc, fps, (frame_width, frame_height))
+        print(f"📹 Video writer initialized: {temp_video_path}")
+    
     frame_count = 0
     last_map_update = 0
     MAP_UPDATE_INTERVAL = 15  # Update map every N frames
     
-    # OPTIMASI 1: Frame Skipping untuk Inference
-    # Deteksi tidak perlu setiap frame, cukup setiap 2-3 frame
-    INFERENCE_INTERVAL = 2  # Process setiap 2 frame
-    UI_UPDATE_INTERVAL = 3  # Update UI setiap 3 frame
+    # Frame skipping settings
+    # PENTING: Jangan skip terlalu banyak, bisa miss damage
+    INFERENCE_INTERVAL = 1  # Process SETIAP frame untuk akurasi maksimal
+    UI_UPDATE_INTERVAL = 2  # Update UI setiap 2 frame (hemat resource)
     last_inference_frame = 0
     last_detection_results = None
     last_annotated_frame = None
@@ -528,7 +682,11 @@ elif st.session_state['is_running'] and video_path is not None and video_path !=
                         print(f"Error saving damage: {e}")
                         continue
             
-            # ----- 5. UPDATE UI (OPTIMIZED - Throttled) -----
+            # ----- 5. WRITE TO OUTPUT VIDEO -----
+            if video_writer is not None:
+                video_writer.write(annotated_frame)
+            
+            # ----- 6. UPDATE UI (OPTIMIZED - Throttled) -----
             
             # Video feed (only every N frames untuk reduce Streamlit overhead)
             if frame_count % UI_UPDATE_INTERVAL == 0:
@@ -577,13 +735,51 @@ elif st.session_state['is_running'] and video_path is not None and video_path !=
     finally:
         cap.release()
         
-        # End session
-        db.end_session(session_id, gps_manager.get_total_distance_km())
+        # Release video writer and convert to browser-compatible format
+        if video_writer is not None:
+            video_writer.release()
+            print(f"📹 Temp video saved: {temp_video_path}")
+            
+            # Convert to H.264 MP4 for browser compatibility using ffmpeg
+            if temp_video_path and os.path.exists(temp_video_path):
+                try:
+                    import subprocess
+                    # Use ffmpeg to convert to H.264 codec (browser compatible)
+                    ffmpeg_cmd = [
+                        'ffmpeg', '-y', '-i', temp_video_path,
+                        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                        '-pix_fmt', 'yuv420p',  # Required for browser compatibility
+                        output_video_path
+                    ]
+                    result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=300)
+                    
+                    if result.returncode == 0:
+                        print(f"✅ Video converted to H.264: {output_video_path}")
+                        # Remove temp file
+                        os.remove(temp_video_path)
+                    else:
+                        print(f"⚠️ FFmpeg conversion failed: {result.stderr}")
+                        # Fallback: rename temp as output
+                        import shutil
+                        shutil.move(temp_video_path, output_video_path)
+                except FileNotFoundError:
+                    print("⚠️ FFmpeg not found, using original video (may not play in browser)")
+                    import shutil
+                    shutil.move(temp_video_path, output_video_path)
+                except Exception as e:
+                    print(f"⚠️ Video conversion error: {e}")
+                    import shutil
+                    shutil.move(temp_video_path, output_video_path)
+        
+        # End session with video path
+        db.end_session(session_id, gps_manager.get_total_distance_km(), output_video_path)
         
         st.session_state['is_running'] = False
         
         # Show completion message
         st.success(f"✅ Inspection Complete! Found {len(st.session_state['detections'])} unique damages.")
+        if output_video_path and os.path.exists(output_video_path):
+            st.info(f"📹 Processed video saved: {output_video_path}")
 
 
 # ==========================================

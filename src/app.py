@@ -25,6 +25,17 @@ from modules.tracker import SpatialDamageTracker
 from modules.database import DamageDatabase, get_database
 from modules.realtime_gps import render_realtime_gps, create_gps_component_html, get_realtime_gps
 
+# Browser Camera (optional - untuk HP)
+try:
+    from modules.browser_camera import (
+        render_browser_camera, 
+        get_browser_frame, 
+        is_browser_camera_active,
+        HAS_WEBRTC
+    )
+except ImportError:
+    HAS_WEBRTC = False
+
 # Import Components
 from components.styling import load_css
 from components.sidebar import render_sidebar, render_history_view
@@ -194,7 +205,114 @@ with col_right:
 # ==========================================
 # 10. VIDEO PROCESSING
 # ==========================================
-if st.session_state['is_running'] and video_path is not None:
+
+# Check if using browser camera
+use_browser_camera = st.session_state.get('use_browser_camera', False) and video_path == "BROWSER_CAMERA"
+
+if use_browser_camera and HAS_WEBRTC:
+    # ==========================================
+    # BROWSER CAMERA MODE (HP/Laptop)
+    # ==========================================
+    st.markdown("### 📱 Browser Camera Mode")
+    
+    # Render browser camera widget
+    webrtc_ctx = render_browser_camera("main_camera")
+    
+    if webrtc_ctx and webrtc_ctx.state.playing:
+        st.success("📹 Camera is streaming! Processing frames...")
+        
+        # Initialize components jika belum
+        if 'browser_cam_initialized' not in st.session_state:
+            # Initialize detector
+            model_path = 'src/models/YOLOv8_Small_RDD.pt'
+            if not os.path.exists(model_path):
+                model_path = 'models/YOLOv8_Small_RDD.pt'
+            
+            st.session_state['browser_detector'] = RoadDamageDetector(model_path=model_path)
+            st.session_state['browser_tracker'] = SpatialDamageTracker(iou_threshold=0.3, max_age=45, min_hits=1)
+            st.session_state['browser_gps'] = GPSManager(mode=gps_config.get('mode', 'simulation'))
+            st.session_state['browser_session'] = db.create_session("browser_camera")
+            st.session_state['browser_cam_initialized'] = True
+        
+        # Get latest frame and process
+        frame = get_browser_frame()
+        if frame is not None:
+            detector = st.session_state['browser_detector']
+            tracker = st.session_state['browser_tracker']
+            gps_manager = st.session_state['browser_gps']
+            session_id = st.session_state['browser_session']
+            
+            # Run detection
+            results = detector.model(frame, conf=conf_thresh, verbose=False)
+            annotated_frame = results[0].plot()
+            
+            # Display frame
+            frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+            
+            # Get GPS
+            if gps_config['mode'] == 'realtime':
+                curr_lat, curr_lon = gps_manager.get_realtime_location()
+            else:
+                curr_lat, curr_lon = gps_manager.get_location_at_frame(0, 30)
+            
+            # Process detections
+            if results[0].boxes:
+                frame_detections = []
+                for box in results[0].boxes:
+                    xyxy = box.xyxy[0].tolist()
+                    cls_id = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    label = detector.model.names[cls_id]
+                    frame_detections.append({"bbox": xyxy, "type": label, "conf": conf})
+                
+                new_damages = tracker.update(frame_detections, (curr_lat, curr_lon))
+                
+                for dmg in new_damages:
+                    x1, y1, x2, y2 = [int(c) for c in dmg['bbox']]
+                    x1, y1 = max(0, x1-20), max(0, y1-20)
+                    x2, y2 = min(annotated_frame.shape[1], x2+20), min(annotated_frame.shape[0], y2+20)
+                    cropped = annotated_frame[y1:y2, x1:x2]
+                    
+                    damage_data = {
+                        "track_id": dmg['track_id'],
+                        "timestamp": time.time(),
+                        "lat": dmg['lat'],
+                        "lon": dmg['lon'],
+                        "type": dmg['type'],
+                        "conf": dmg['conf'],
+                        "bbox": dmg['bbox'],
+                        "severity": "medium",
+                        "image_path": None
+                    }
+                    
+                    damage_id = db.insert_damage(damage_data, session_id, cropped)
+                    if damage_id:
+                        record = db.get_damage_by_id(damage_id)
+                        if record:
+                            damage_data['image_path'] = record.image_path
+                    
+                    st.session_state['detections'].append(damage_data)
+            
+            # Update stats
+            with stats_placeholder.container():
+                render_stats_panel(st.session_state['detections'], tracker_stats={'active_tracks': len(tracker.tracks)})
+            
+            # Update map
+            update_live_map(map_placeholder, st.session_state['detections'])
+    
+    elif webrtc_ctx:
+        st.info("👆 Click START to begin camera streaming")
+    else:
+        st.warning("⚠️ Browser camera not available. Check if streamlit-webrtc is installed.")
+
+elif use_browser_camera and not HAS_WEBRTC:
+    # WebRTC tidak tersedia
+    st.error("❌ Browser camera requires streamlit-webrtc library!")
+    st.code("pip install streamlit-webrtc av", language="bash")
+    st.info("After installing, restart the application.")
+
+elif st.session_state['is_running'] and video_path is not None:
     
     # ----- INITIALIZATION -----
     
@@ -246,8 +364,8 @@ if st.session_state['is_running'] and video_path is not None:
     # Initialize Tracker
     tracker = SpatialDamageTracker(
         iou_threshold=st.session_state.get('tracker_iou', 0.3),
-        max_age=30,
-        min_hits=st.session_state.get('tracker_min_hits', 2),
+        max_age=45,  # ~1.5 detik pada 30fps (lebih toleran)
+        min_hits=1,  # Simpan langsung saat terdeteksi pertama kali
         min_distance_meters=st.session_state.get('min_distance', 5.0)
     )
     
@@ -306,11 +424,12 @@ if st.session_state['is_running'] and video_path is not None:
                 results = detector.model(frame, conf=conf_thresh, verbose=False)
                 last_detection_results = results
                 last_annotated_frame = results[0].plot()
+                annotated_frame = last_annotated_frame
                 last_inference_frame = frame_count
             else:
-                # Use previous detection result, just draw on current frame
+                # Use previous detection result
                 results = last_detection_results
-                if results:
+                if last_annotated_frame is not None:
                     annotated_frame = last_annotated_frame
                 else:
                     annotated_frame = frame
@@ -328,6 +447,7 @@ if st.session_state['is_running'] and video_path is not None:
             new_damages = []
             
             if results and results[0].boxes and frame_count == last_inference_frame:
+                print(f"\n🔍 Frame {frame_count}: Found {len(results[0].boxes)} detections")
                 for box in results[0].boxes:
                     xyxy = box.xyxy[0].tolist()
                     cls_id = int(box.cls[0])
@@ -339,46 +459,76 @@ if st.session_state['is_running'] and video_path is not None:
                         "type": label,
                         "conf": conf
                     })
+                    print(f"  - {label} (conf: {conf:.2f})")
+                
+                print(f"📍 GPS: ({curr_lat:.6f}, {curr_lon:.6f})")
                 
                 # Update tracker - returns only NEW unique damages
                 new_damages = tracker.update(frame_detections, (curr_lat, curr_lon))
+                
+                if new_damages:
+                    print(f"✨ Tracker returned {len(new_damages)} NEW damages")
+                    for dmg in new_damages:
+                        print(f"  - Track ID {dmg['track_id']}: {dmg['type']}")
+                else:
+                    print("⚠️ Tracker returned 0 new damages (might be duplicates)")
             
             # ----- 4. SAVE NEW DAMAGES (OPTIMIZED - Batch insert) -----
             if new_damages:
+                print(f"\n💾 Saving {len(new_damages)} damages to database...")
                 for dmg in new_damages:
-                    # Determine severity
-                    severity = "medium"
-                    if "pothole" in dmg['type'].lower() or "d40" in dmg['type'].lower():
-                        severity = "high" if dmg['conf'] > 0.6 else "medium"
-                    elif "alligator" in dmg['type'].lower() or "d20" in dmg['type'].lower():
-                        severity = "high" if dmg['conf'] > 0.7 else "medium"
-                    elif dmg['conf'] < 0.4:
-                        severity = "low"
-                    
-                    # Prepare data (OPTIMIZED - hanya simpan frame yang perlu)
-                    damage_data = {
-                        "track_id": dmg['track_id'],
-                        "timestamp": frame_count / fps,
-                        "lat": dmg['lat'],
-                        "lon": dmg['lon'],
-                        "type": dmg['type'],
-                        "conf": dmg['conf'],
-                        "bbox": dmg['bbox'],
-                        "severity": severity,
-                        "frame_img": None  # Jangan simpan di memory
-                    }
-                    
-                    # Add to session state (without image for now)
-                    st.session_state['detections'].append(damage_data)
-                    
-                    # OPTIMIZED: Save to database in background (non-blocking)
-                    # Crop image untuk save space
-                    x1, y1, x2, y2 = [int(c) for c in dmg['bbox']]
-                    x1, y1 = max(0, x1-10), max(0, y1-10)
-                    x2, y2 = min(frame.shape[1], x2+10), min(frame.shape[0], y2+10)
-                    cropped_frame = frame[y1:y2, x1:x2]
-                    
-                    db.insert_damage(damage_data, session_id, cropped_frame)
+                    try:
+                        print(f"  Processing damage: {dmg['type']} at ({dmg['lat']:.6f}, {dmg['lon']:.6f})")
+                        # Determine severity
+                        severity = "medium"
+                        if "pothole" in dmg['type'].lower() or "d40" in dmg['type'].lower():
+                            severity = "high" if dmg['conf'] > 0.6 else "medium"
+                        elif "alligator" in dmg['type'].lower() or "d20" in dmg['type'].lower():
+                            severity = "high" if dmg['conf'] > 0.7 else "medium"
+                        elif dmg['conf'] < 0.4:
+                            severity = "low"
+                        
+                        # Crop image dengan bounding box (dari annotated frame)
+                        # Ini akan include bounding box dan label di gambar
+                        x1, y1, x2, y2 = [int(c) for c in dmg['bbox']]
+                        x1, y1 = max(0, x1-20), max(0, y1-20)
+                        x2, y2 = min(annotated_frame.shape[1], x2+20), min(annotated_frame.shape[0], y2+20)
+                        cropped_with_bbox = annotated_frame[y1:y2, x1:x2]
+                        
+                        # Prepare data
+                        damage_data = {
+                            "track_id": dmg['track_id'],
+                            "timestamp": frame_count / fps,
+                            "lat": dmg['lat'],
+                            "lon": dmg['lon'],
+                            "type": dmg['type'],
+                            "conf": dmg['conf'],
+                            "bbox": dmg['bbox'],
+                            "severity": severity,
+                            "image_path": None
+                        }
+                        
+                        # Save to database dan dapatkan image_path
+                        damage_id = db.insert_damage(damage_data, session_id, cropped_with_bbox)
+                        
+                        # Update dengan image_path dari database
+                        if damage_id:
+                            record = db.get_damage_by_id(damage_id)
+                            if record and record.image_path:
+                                damage_data['image_path'] = record.image_path
+                                print(f"✅ Damage {damage_id} saved with image: {record.image_path}")
+                            else:
+                                print(f"⚠️ Damage {damage_id} saved but no image path")
+                        else:
+                            print(f"❌ Failed to save damage to database")
+                        
+                        # Add to session state (dengan image_path)
+                        st.session_state['detections'].append(damage_data)
+                        
+                    except Exception as e:
+                        # Log error tapi lanjutkan processing
+                        print(f"Error saving damage: {e}")
+                        continue
             
             # ----- 5. UPDATE UI (OPTIMIZED - Throttled) -----
             
@@ -393,7 +543,7 @@ if st.session_state['is_running'] and video_path is not None:
                     new_height = int(frame_rgb.shape[0] * scale)
                     frame_rgb = cv2.resize(frame_rgb, (display_width, new_height))
                 
-                video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                video_placeholder.image(frame_rgb, channels="RGB", width='stretch')
             
             # Progress bar
             if not is_stream and total_frames > 0 and frame_count % 10 == 0:
@@ -421,7 +571,10 @@ if st.session_state['is_running'] and video_path is not None:
                 break
     
     except Exception as e:
-        st.error(f"Processing error: {e}")
+        st.error(f"⚠️ Processing error: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
+        # Don't break, just log the error
     
     finally:
         cap.release()

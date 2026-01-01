@@ -18,6 +18,10 @@ numpy>=1.24.0
 # Image Processing
 Pillow>=10.0.0
 
+# Browser Camera (HP/Laptop via WebRTC)
+streamlit-webrtc>=0.47.0
+av>=10.0.0
+
 # GPS Realtime dari Browser (PENTING!)
 streamlit-js-eval>=0.1.0
 

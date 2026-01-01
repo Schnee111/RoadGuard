@@ -42,12 +42,12 @@ class DamageTracker:
         min_hits: Minimum deteksi sebelum track dianggap valid
     """
     
-    def __init__(self, iou_threshold: float = 0.3, max_age: int = 30, min_hits: int = 2):
+    def __init__(self, iou_threshold: float = 0.3, max_age: int = 45, min_hits: int = 1):
         self.tracks: Dict[int, Track] = {}
         self.next_id: int = 0
         self.iou_threshold = iou_threshold
-        self.max_age = max_age  # ~1 detik pada 30fps
-        self.min_hits = min_hits  # Harus terdeteksi minimal 2x untuk dianggap valid
+        self.max_age = max_age  # ~1.5 detik pada 30fps
+        self.min_hits = min_hits  # Langsung simpan saat terdeteksi pertama kali
         self.frame_count = 0
         
         # Statistik
@@ -174,6 +174,23 @@ class DamageTracker:
                 )
                 self.tracks[self.next_id] = new_track
                 matched_track_ids.add(self.next_id)
+                
+                # Jika min_hits=1, langsung anggap sebagai new damage
+                if self.min_hits == 1:
+                    new_track.is_counted = True
+                    self.total_unique_damages += 1
+                    self.damage_type_counts[det_type] += 1
+                    
+                    new_damages.append({
+                        "track_id": self.next_id,
+                        "bbox": det_bbox,
+                        "type": det_type,
+                        "conf": det_conf,
+                        "lat": current_location[0],
+                        "lon": current_location[1],
+                        "first_seen_frame": self.frame_count
+                    })
+                
                 self.next_id += 1
         
         # 2. Age out tracks yang tidak terdeteksi
@@ -217,8 +234,8 @@ class SpatialDamageTracker(DamageTracker):
     Berguna untuk mencegah duplikasi saat kendaraan melewati lokasi yang sama dua kali.
     """
     
-    def __init__(self, iou_threshold: float = 0.3, max_age: int = 30, 
-                 min_hits: int = 2, min_distance_meters: float = 5.0):
+    def __init__(self, iou_threshold: float = 0.3, max_age: int = 45, 
+                 min_hits: int = 1, min_distance_meters: float = 5.0):
         super().__init__(iou_threshold, max_age, min_hits)
         self.min_distance_meters = min_distance_meters
         self.recorded_locations: List[Tuple[float, float, str]] = []  # (lat, lon, type)
@@ -245,6 +262,7 @@ class SpatialDamageTracker(DamageTracker):
             if rec_type == damage_type:
                 distance = self.haversine_distance(lat, lon, rec_lat, rec_lon)
                 if distance < self.min_distance_meters:
+                    print(f"  [SPATIAL] Location already recorded: {damage_type} at {distance:.1f}m away")
                     return True
         return False
     
@@ -254,16 +272,28 @@ class SpatialDamageTracker(DamageTracker):
         # Panggil parent update
         new_damages = super().update(detections, current_location)
         
-        # Filter berdasarkan jarak GPS
+        print(f"[SPATIAL] Parent returned {len(new_damages)} damages, checking locations...")
+        
+        # Filter berdasarkan jarak GPS (skip jika simulasi dengan lokasi statis)
         filtered_damages = []
         for dmg in new_damages:
             lat, lon = dmg["lat"], dmg["lon"]
             dmg_type = dmg["type"]
             
+            # Skip spatial check jika lokasi (0,0) atau tidak valid
+            if lat == 0 and lon == 0:
+                print(f"  [SPATIAL] Skipping location check (0,0) - adding damage")
+                filtered_damages.append(dmg)
+                continue
+            
             if not self.is_location_recorded(lat, lon, dmg_type):
                 self.recorded_locations.append((lat, lon, dmg_type))
                 filtered_damages.append(dmg)
+                print(f"  [SPATIAL] ✅ New location recorded: {dmg_type}")
+            else:
+                print(f"  [SPATIAL] ❌ Duplicate location filtered: {dmg_type}")
         
+        print(f"[SPATIAL] Final output: {len(filtered_damages)} damages")
         return filtered_damages
     
     def reset(self):

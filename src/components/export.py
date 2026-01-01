@@ -425,7 +425,7 @@ def render_export_buttons(detections: list, db=None, session_id: str = None):
             data=csv_data,
             file_name=csv_filename,
             mime="text/csv",
-            use_container_width=True
+            width='stretch'
         )
     
     # GeoJSON Export
@@ -436,7 +436,7 @@ def render_export_buttons(detections: list, db=None, session_id: str = None):
             data=geojson_data,
             file_name=geojson_filename,
             mime="application/json",
-            use_container_width=True
+            width='stretch'
         )
     
     # KML Export
@@ -447,7 +447,7 @@ def render_export_buttons(detections: list, db=None, session_id: str = None):
             data=kml_data,
             file_name=kml_filename,
             mime="application/vnd.google-earth.kml+xml",
-            use_container_width=True
+            width='stretch'
         )
     
     # PDF Report
@@ -469,9 +469,9 @@ def render_export_buttons(detections: list, db=None, session_id: str = None):
                 data=pdf_data,
                 file_name=pdf_filename,
                 mime="application/pdf",
-                use_container_width=True
+                width='stretch'
             )
         except Exception as e:
-            if st.button("📄 PDF", use_container_width=True, disabled=True):
+            if st.button("📄 PDF", width='stretch', disabled=True):
                 pass
             st.caption("Install reportlab untuk PDF")

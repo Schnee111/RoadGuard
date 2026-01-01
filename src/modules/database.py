@@ -150,6 +150,9 @@ class DamageDatabase:
         Returns:
             Path relatif ke file gambar
         """
+        # Pastikan directory exists
+        os.makedirs(self.evidence_dir, exist_ok=True)
+        
         filename = f"{uuid.uuid4().hex[:12]}.jpg"
         if damage_id:
             filename = f"dmg_{damage_id}_{filename}"
@@ -163,7 +166,12 @@ class DamageDatabase:
             new_size = (640, int(h * scale))
             frame = cv2.resize(frame, new_size)
         
-        cv2.imwrite(filepath, frame)
+        # Save dengan compression quality
+        cv2.imwrite(filepath, frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        
+        # Debug: print path
+        print(f"✅ Saved evidence image: {filepath}")
+        
         return filepath
     
     def insert_damage(self, data: dict, session_id: str, frame_image=None) -> int:
@@ -238,6 +246,18 @@ class DamageDatabase:
             """, (session_id,))
             
             return [self._row_to_record(row) for row in cursor.fetchall()]
+    
+    def get_damage_by_id(self, damage_id: int) -> Optional[DamageRecord]:
+        """Ambil satu damage record berdasarkan ID"""
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT * FROM damages WHERE id = ?
+            """, (damage_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_record(row)
+            return None
     
     def get_all_damages(self, limit: int = 1000, offset: int = 0) -> List[DamageRecord]:
         """Ambil semua kerusakan dengan pagination"""

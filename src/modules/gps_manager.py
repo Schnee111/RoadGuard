@@ -36,7 +36,7 @@ class GPSPoint:
 class GPSManager:
     """
     Manager untuk data GPS yang mendukung berbagai sumber input:
-    - Realtime (dari browser via streamlit-js-eval) ← NEW
+    - Realtime (dari browser via streamlit-js-eval)
     - Simulasi (default)
     - CSV file
     - GPX file

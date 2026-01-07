@@ -548,9 +548,8 @@ elif st.session_state['is_running'] and video_path is not None and video_path !=
     MAP_UPDATE_INTERVAL = 15  # Update map every N frames
     
     # Frame skipping settings
-    # PENTING: Jangan skip terlalu banyak, bisa miss damage
-    INFERENCE_INTERVAL = 1  # Process SETIAP frame untuk akurasi maksimal
-    UI_UPDATE_INTERVAL = 2  # Update UI setiap 2 frame (hemat resource)
+    INFERENCE_INTERVAL = st.session_state.get('inference_interval', 1)
+    UI_UPDATE_INTERVAL = st.session_state.get('ui_update_interval', 2)
     last_inference_frame = 0
     last_detection_results = None
     last_annotated_frame = None
@@ -692,8 +691,8 @@ elif st.session_state['is_running'] and video_path is not None and video_path !=
             if frame_count % UI_UPDATE_INTERVAL == 0:
                 frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 
-                # OPTIMIZED: Resize untuk display
-                display_width = 800  # Max width
+                # OPTIMIZED: Resize untuk display - BACA DARI SIDEBAR SETTINGS
+                display_width = st.session_state.get('display_width', 800)
                 if frame_rgb.shape[1] > display_width:
                     scale = display_width / frame_rgb.shape[1]
                     new_height = int(frame_rgb.shape[0] * scale)
@@ -820,7 +819,7 @@ else:
     4. Click **START** to begin inspection
     
     💡 **Tips:**
-    - Use **🔴 Realtime GPS** mode when using webcam/IP camera for live inspection
+    - Use **Realtime GPS** mode when using webcam/IP camera for live inspection
     - Upload GPX file from your GPS tracker for accurate location
     - Check the **HISTORY** button to view past inspections
     """)

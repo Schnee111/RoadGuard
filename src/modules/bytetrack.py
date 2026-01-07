@@ -108,7 +108,7 @@ class STrack:
 
 class ByteTracker:
     """
-    ByteTrack for Road Damage Detection - FIXED VERSION
+    ByteTrack for Road Damage Detection
     
     Key fixes:
     1. Lower thresholds for matching

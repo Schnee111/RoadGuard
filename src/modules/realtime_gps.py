@@ -36,11 +36,6 @@ class RealtimeGPS:
     1. Menggunakan streamlit-js-eval untuk menjalankan JavaScript
     2. JavaScript memanggil navigator.geolocation.getCurrentPosition()
     3. Data dikembalikan ke Python
-    
-    Catatan:
-    - Memerlukan HTTPS atau localhost
-    - User harus memberikan permission lokasi
-    - Akurasi tergantung device (HP lebih akurat dari laptop)
     """
     
     def __init__(self):

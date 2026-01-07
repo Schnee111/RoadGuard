@@ -33,7 +33,6 @@ class RoadDamageDetector:
     
     Mendukung model:
     - YOLOv8 yang ditraining pada dataset RDD (Road Damage Detection)
-    - Model custom dengan kelas kerusakan jalan
     
     Attributes:
         model: YOLO model instance
@@ -58,10 +57,7 @@ class RoadDamageDetector:
         else:
             # Coba beberapa lokasi
             possible_paths = [
-                'src/models/YOLOv8_Small_RDD.pt',
-                'models/YOLOv8_Small_RDD.pt',
-                'src/models/yolov8n.pt',
-                'models/yolov8n.pt'
+                'src/models/YOLOv8_Small_RDD.pt'
             ]
             self.model_path = None
             for path in possible_paths:
@@ -94,10 +90,6 @@ class RoadDamageDetector:
                     self.label_map[name] = "Alligator Crack"
                 elif 'd40' in name_lower or 'pothole' in name_lower:
                     self.label_map[name] = "Pothole"
-                elif 'd43' in name_lower:
-                    self.label_map[name] = "Damaged Lane Marking"
-                elif 'd44' in name_lower:
-                    self.label_map[name] = "Faded Lane Marking"
     
     def get_readable_label(self, raw_label: str) -> str:
         """Convert raw label ke human-readable label"""
